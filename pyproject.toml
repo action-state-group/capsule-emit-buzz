@@ -1,0 +1,36 @@
+# SPDX-License-Identifier: Apache-2.0
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "capsule-emit-buzz"
+version = "0.0.1"
+description = "Buzz-side event -> EvidenceRecord adapter and parity fixtures. Consumes capsule-emit's public ConnectorPort."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "Apache-2.0" }
+authors = [{ name = "Action State Group" }]
+keywords = ["buzz", "nostr", "evidence-record", "capsule", "connector", "adapter"]
+
+# The one runtime dependency: capsule-emit, whose public ConnectorPort this
+# adapter implements. ConnectorPort landed and was exported at package top
+# level in capsule-emit 0.8.4 (release 7ad8104, "export ConnectorPort at
+# package top level, cut the release adapters pin") — pin that floor.
+dependencies = [
+    "capsule-emit>=0.8.4",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/action-state-group/capsule-emit-buzz"
+
+[tool.setuptools]
+packages = ["capsule_emit_buzz"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

@@ -1,0 +1,28 @@
+capsule-emit-buzz
+Copyright 2026 Action State Group, Inc.
+
+This product includes software developed at Action State Group, Inc.
+
+Licensed under the Apache License, Version 2.0. See LICENSE.
+
+--------------------------------------------------------------------------
+Third-party and vendored material
+--------------------------------------------------------------------------
+
+capsule-emit
+    The neutral capsule producer/emission layer, whose public
+    ``ConnectorPort`` contract this adapter implements. Licensed under
+    Apache-2.0. Consumed as a Python package dependency; see pyproject.toml
+    for the pinned version.
+
+fixtures/REGISTRY.md
+    Records the provenance of the two-language parity fixtures under
+    fixtures/. The Buzz Evidence Contract profiles the fixtures exercise
+    (nostr-pubkey host-principal profile; buzz.agent-job/v1,
+    buzz.moderation/v1, buzz.release/v1) belong to the capsule-registry
+    and agent-action-capsule repositories, NOT here — this repository only
+    consumes those profile names.
+
+"Buzz" is used here only as a public project name; see README.md's boundary
+statement and the fail-closed neutrality gate in
+.github/workflows/neutrality.yml.
