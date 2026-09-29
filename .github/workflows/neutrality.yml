@@ -1,0 +1,92 @@
+# SPDX-License-Identifier: Apache-2.0
+# Neutrality gate — pre-merge check that this public repo carries none of the
+# reserved vocabulary. The reserved-term list is NOT in this repository (a public
+# gate listing the terms would itself disclose them); it is supplied at run time
+# via the NEUTRALITY_TERMS repository secret. .github/neutrality_scan.py is pure
+# matching logic parameterized by that secret, and is fail-closed: a missing
+# secret fails the job rather than passing silently.
+#
+# Maintainers: set the NEUTRALITY_TERMS repository secret (Settings -> Secrets ->
+# Actions) to the same JSON payload used in the other public repos. With the
+# secret unset every run fails closed with exit 2 -- fork AND same-repo. If the
+# whole repo suddenly goes red on this check, an unset or rotated
+# NEUTRALITY_TERMS is the first thing to look at.
+#
+# ---------------------------------------------------------------------------
+# WHY pull_request_target — READ BEFORE EDITING THIS FILE
+# ---------------------------------------------------------------------------
+# GitHub withholds secrets from `pull_request` runs originating in a FORK. This
+# gate is fail-closed on a missing secret, so under `pull_request` every fork
+# PR went red for a reason unrelated to its content. `pull_request_target` runs
+# with the BASE repository's context and therefore DOES receive secrets.
+#
+# That is normally a footgun — but only because the usual pattern checks out and
+# EXECUTES the pull request's code. This gate never executes anything from the
+# pull request. It is a text scanner. The safety properties are:
+#
+#   1. `pull_request_target` always runs the workflow and scripts from the BASE
+#      branch. A PR cannot modify this file or neutrality_scan.py for its own run.
+#   2. The PR's files are checked out into ./pr as INERT DATA and are only ever
+#      read as text by the trusted scanner.
+#   3. No step runs anything from ./pr — no build, no install, no test.
+#   4. `persist-credentials: false` on both checkouts.
+#   5. `permissions: contents: read` — the job can do nothing else.
+#
+# >>> IF YOU ADD A STEP THAT RUNS, BUILDS, OR INSTALLS ANYTHING FROM ./pr,
+# >>> YOU HAVE HANDED THE NEUTRALITY_TERMS SECRET TO ANY STRANGER WHO OPENS
+# >>> A PULL REQUEST. Do not do it. Add such a step to a separate workflow on
+# >>> `pull_request`, which correctly receives no secrets.
+#
+# To make this a required pre-merge gate, enable branch protection on `main`
+# and require the "neutrality" status check (repo Settings -> Branches).
+name: neutrality
+
+on:
+  pull_request_target:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  neutrality:
+    runs-on: ubuntu-latest
+    steps:
+      # Base repo — TRUSTED. Supplies the scanner. Never the PR's version of it.
+      - name: Checkout base (trusted — provides the scanner)
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+        with:
+          persist-credentials: false
+
+      # PR head — UNTRUSTED, checked out as data only. Never executed.
+      - name: Checkout pull request head into ./pr (inert data — never executed)
+        if: github.event_name == 'pull_request_target'
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: pr
+          persist-credentials: false
+          # See the five safety properties above; nothing from ./pr is ever
+          # executed, built, installed, or sourced.
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
+        with:
+          python-version: "3.12"
+
+      # Guards the scanner's own logic, including that matched terms stay
+      # redacted by default. Runs on the trusted base checkout; needs no secret.
+      - name: Neutrality scanner self-test (span-based allow-phrase fix)
+        run: python .github/neutrality_scan.py --self-test
+
+      - name: Reserved-vocabulary neutrality scan (term list from secret)
+        env:
+          NEUTRALITY_TERMS: ${{ secrets.NEUTRALITY_TERMS }}
+          SCAN_ROOT: ${{ github.event_name == 'pull_request_target' && 'pr' || '.' }}
+          # Print the matched term ONLY when the run is trusted. Without this,
+          # pull_request_target would let a stranger recover the reserved list
+          # one term at a time out of the public log.
+          NEUTRALITY_REVEAL: ${{ github.event_name != 'pull_request_target' || github.event.pull_request.head.repo.full_name == github.repository }}
+        run: python .github/neutrality_scan.py "$SCAN_ROOT"
