@@ -13,8 +13,9 @@ NIP-01 defines it:
 - ``sig`` must be a BIP-340 Schnorr signature by ``pubkey`` over ``id``. It is
   verified with coincurve (libsecp256k1; MIT OR Apache-2.0).
 
-Any failure raises :class:`NostrEventError` with a reason code. The error never
-carries the event's content.
+The event must have exactly those seven fields, each key once, and its text
+must be valid Unicode. Any failure raises :class:`NostrEventError` with a
+reason code. The error never carries the event's content.
 """
 from __future__ import annotations
 
@@ -32,8 +33,11 @@ __all__ = [
     "verify_event",
 ]
 
-_HEX64 = re.compile(r"^[0-9a-f]{64}$")
-_HEX128 = re.compile(r"^[0-9a-f]{128}$")
+_HEX64 = re.compile(r"[0-9a-f]{64}")
+_HEX128 = re.compile(r"[0-9a-f]{128}")
+
+#: The seven fields a NIP-01 event has, and no others.
+_FIELDS = frozenset({"id", "pubkey", "created_at", "kind", "tags", "content", "sig"})
 
 _ESCAPES = {
     "\n": "\\n",
@@ -81,6 +85,13 @@ def compute_event_id(pubkey: str, created_at: int, kind: int, tags: list[list[st
     return hashlib.sha256(serialize_for_id(pubkey, created_at, kind, tags, content)).hexdigest()
 
 
+def _no_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    keys = [k for k, _ in pairs]
+    if len(keys) != len(set(keys)):
+        raise NostrEventError("malformed", "the event repeats a key")
+    return dict(pairs)
+
+
 def _field(event: dict[str, Any], name: str, kind: type) -> Any:
     value = event.get(name)
     if isinstance(value, bool) or not isinstance(value, kind):
@@ -92,11 +103,15 @@ def verify_event(raw: bytes | str) -> dict[str, Any]:
     """Parse *raw* (the event's JSON, as received) and verify it. Returns the
     parsed event; raises :class:`NostrEventError` on any failure."""
     try:
-        event = json.loads(raw)
+        # A repeated key would let the bytes carry text the signature does not
+        # cover (a parser keeps one copy; the digest covers both).
+        event = json.loads(raw, object_pairs_hook=_no_duplicate_keys)
     except (json.JSONDecodeError, UnicodeDecodeError):
         raise NostrEventError("malformed", "the event is not JSON") from None
     if not isinstance(event, dict):
         raise NostrEventError("malformed", "the event is not a JSON object")
+    if set(event) - _FIELDS:
+        raise NostrEventError("malformed", "the event has fields beyond the seven NIP-01 fields")
     if not event.get("sig"):
         raise NostrEventError("unsigned", "the event has no signature")
     event_id = _field(event, "id", str)
@@ -106,15 +121,19 @@ def verify_event(raw: bytes | str) -> dict[str, Any]:
     kind = _field(event, "kind", int)
     tags = _field(event, "tags", list)
     content = _field(event, "content", str)
-    if not _HEX64.match(event_id) or not _HEX64.match(pubkey):
+    if not _HEX64.fullmatch(event_id) or not _HEX64.fullmatch(pubkey):
         raise NostrEventError("malformed", "id and pubkey are 64 lowercase hex")
-    if not _HEX128.match(sig):
+    if not _HEX128.fullmatch(sig):
         raise NostrEventError("malformed", "sig is 128 lowercase hex")
     if created_at < 0 or not 0 <= kind <= 65535:
         raise NostrEventError("malformed", "created_at or kind is out of range")
     if not all(isinstance(t, list) and all(isinstance(x, str) for x in t) for t in tags):
         raise NostrEventError("malformed", "tags is a list of lists of strings")
-    if compute_event_id(pubkey, created_at, kind, tags, content) != event_id:
+    try:
+        computed = compute_event_id(pubkey, created_at, kind, tags, content)
+    except UnicodeEncodeError:
+        raise NostrEventError("malformed", "the event holds text that is not valid Unicode") from None
+    if computed != event_id:
         raise NostrEventError("id_mismatch", "the id is not the hash of the event")
     try:
         ok = PublicKeyXOnly(bytes.fromhex(pubkey)).verify(bytes.fromhex(sig), bytes.fromhex(event_id))

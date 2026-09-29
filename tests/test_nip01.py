@@ -69,3 +69,48 @@ def test_an_event_with_no_signature_field_is_refused():
 def test_malformed_input_is_refused_never_raises_otherwise(raw):
     with pytest.raises(NostrEventError):
         BuzzEvent(raw)
+
+
+@pytest.mark.parametrize("change", [
+    {"pubkey": "0" * 64},
+    {"tags": [["t", "added"]]},
+    {"created_at": 1727280001},
+], ids=["pubkey", "tags", "created_at"])
+def test_tampering_any_signed_field_is_refused(change):
+    with pytest.raises(NostrEventError) as info:
+        BuzzEvent(edited(signed(SECRET), **change))
+    assert info.value.reason in ("id_mismatch", "bad_signature")
+    assert SECRET not in str(info.value)
+
+
+@pytest.mark.parametrize("field", ["pubkey", "sig", "id"])
+def test_a_hex_field_with_a_trailing_newline_is_refused(field):
+    event = json.loads(signed(SECRET))
+    event[field] = event[field] + "\n"
+    with pytest.raises(NostrEventError) as info:
+        BuzzEvent(json.dumps(event).encode())
+    assert info.value.reason == "malformed"
+
+
+def test_a_repeated_content_key_is_refused():
+    """A parser keeps one copy of a repeated key while the digest covers both:
+    unsigned text could ride along. Refused, never verified."""
+    raw = signed(SECRET)
+    doubled = raw[:-1] + b',"content":"text the signature does not cover"}'
+    with pytest.raises(NostrEventError) as info:
+        BuzzEvent(doubled)
+    assert info.value.reason == "malformed"
+
+
+def test_a_field_beyond_the_seven_is_refused():
+    with pytest.raises(NostrEventError) as info:
+        BuzzEvent(edited(signed(SECRET), extra="unsigned text"))
+    assert info.value.reason == "malformed"
+
+
+def test_a_lone_surrogate_is_a_nostr_event_error_not_a_unicode_error():
+    event = json.loads(signed(SECRET))
+    raw = json.dumps(event).replace(json.dumps(SECRET), '"\\ud800"').encode()
+    with pytest.raises(NostrEventError) as info:
+        BuzzEvent(raw)
+    assert info.value.reason == "malformed"
