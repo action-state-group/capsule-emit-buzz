@@ -117,7 +117,15 @@ record's content. It goes once 100 records have accumulated or 900 seconds have
 passed. Turn it off with `witness=False`, or `CAPSULE_WITNESS=off` in the
 environment.
 
-## Signed audit-export manifest
+## Signed audit-export manifest (a sidecar for a proposed export)
+
+**Independent, and about a proposal.** This part of the repository proposes a
+signed-manifest format for the audit export discussed in
+[block/buzz#3228](https://github.com/block/buzz/issues/3228). That issue is an
+open proposal. **Nothing in it is merged into Buzz, and Buzz has no such export
+today.** Everything below works on an export file in the shape #3228 proposes.
+It is not made or endorsed by the Buzz project, and no Buzz code is copied here:
+the only Buzz-derived material is a test vector.
 
 Buzz keeps a per-community, append-only hash chain of audit entries. The chain
 is tamper-evident but keyless: someone with write access to its database can
@@ -140,13 +148,13 @@ capsule-emit-buzz-export verify --manifest manifest.json --export entries.jsonl 
   checked against that key pinned by whoever verifies. `verify` without
   `--expect-key` reports "signature valid under an UNPINNED key" and exits 3,
   never 0.
-
-- The input is the export proposed in Buzz #3228 (not merged): one JSON entry
-  per line, with `seq`, `hash` and `prev_hash` hex-encoded. It needs no access
-  to Buzz's database and changes nothing in Buzz.
-- The manifest is the `buzz_audit_export_manifest` version-1 format proposed in
-  Buzz #3228 (not merged), and it is byte-compatible both ways. A manifest signed by the Rust signing path verifies
-  here, and this signer reproduces it exactly (`tests/vectors/`).
+- The input is the export #3228 proposes: one JSON entry per line, with `seq`,
+  `hash` and `prev_hash` hex-encoded. It needs no access to Buzz's database and
+  changes nothing in Buzz.
+- The manifest is the `buzz_audit_export_manifest` version-1 format proposed
+  for #3228. It is byte-compatible both ways with a Rust signing path written
+  for that proposal: a manifest it signed verifies here, and this signer
+  reproduces it exactly (`tests/vectors/`).
 - The manifest records the range, the entry count and the final hash only. No
   entry's content, actor or detail is copied into it.
 - The export's links are checked (`prev_hash` and `seq`), and its final hash
@@ -154,6 +162,59 @@ capsule-emit-buzz-export verify --manifest manifest.json --export entries.jsonl 
   stays with Buzz's chain verifier.
 - The signing key is read from `--key-file` or `BUZZ_AUDIT_SIGNING_KEY` (a
   32-byte seed, hex) and is never printed or written.
+
+### What this adds to #3228
+
+#3228 proposes an export that anyone can check link by link. That check can't
+catch a rewrite by someone who can write the database, because they can
+recompute every hash. This adds four things:
+
+1. **A signature from a key outside the database.** The operator signs each
+   export's range and final hash. A rewrite made after that no longer matches,
+   even with every hash recomputed. Whoever checks pins the operator's public
+   key.
+2. **A check between two exports.** `verify_extends` takes an earlier signed
+   manifest and a later export. It passes only if the later export still has
+   the earlier final hash at the same `seq`, or starts right after it and links
+   to it. So the second export exposes a rewrite of the range the first one
+   covered.
+3. **A log of manifests, with proofs.** `capsule-emit-buzz-log append` adds
+   each signed manifest to an append-only log and signs a checkpoint. The
+   receipt proves the manifest is in the log (inclusion). The second receipt
+   also proves the log extends the first one (consistency), so an earlier
+   manifest can't be dropped or swapped later. The log, checkpoints and proofs
+   come from [`cll`](https://github.com/action-state-group/checkpointed-local-log),
+   used as published.
+4. **An optional witness, off by default.** `--witness URL` sends the log's
+   checkpoint (its size, a root hash, a time and the log key) to a witness and
+   stores the witness's receipt. It never sends a manifest or an entry.
+   Without `--witness`, nothing leaves the machine.
+
+See it caught, offline:
+
+```
+python -m capsule_emit_buzz.rewrite_demo
+```
+
+The demo keeps a keyless hash chain in SQLite. It exports three entries,
+signs and logs the manifest, then rewrites entry 2 in the database and
+recomputes every later hash. The keyless check still passes. A second export
+is signed and logged, and the log is consistent. The first manifest, checked
+against the second export, catches the rewrite. The demo's table and hash are
+stand-ins written for it, not Buzz's schema or hash.
+`tests/test_rewrite_demo.py` runs the same steps, and a control without the
+rewrite passes.
+
+```
+capsule-emit-buzz-log append --manifest m2.json --log manifests.jsonl \
+    --log-key log-key.pem --out r2.json            # add --witness URL to opt in
+capsule-emit-buzz-log verify --receipt r2.json --manifest m2.json \
+    --expect-log-key <the log's public key, hex> --earlier r1.json
+```
+
+No test uses the network. Every test runs with sockets blocked. The witness
+tests use a local test key that mints real COSE Receipts, and they pass it in
+as the transport.
 
 ## Licensing
 

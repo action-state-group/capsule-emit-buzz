@@ -9,13 +9,13 @@ checks out. A manifest signed with an operator-held key that never lives in the
 database closes that gap for anyone who saved it: a later export of the same
 range that was rewritten no longer matches the signed final hash.
 
-This module signs and verifies such manifests from an existing export (one
-JSON object per entry, as the export proposed in Buzz #3228 (not merged)
-writes them: ``seq``,
-``hash``, ``prev_hash``, ... with byte fields hex-encoded). It changes nothing
-in Buzz and needs no access to its database.
+This module signs and verifies such manifests over an export file: one JSON
+object per entry (``seq``, ``hash``, ``prev_hash``, ... with byte fields
+hex-encoded), in the shape block/buzz#3228 proposes. #3228 is an open
+proposal; Buzz has no such export today. This module changes nothing in Buzz
+and needs no access to its database.
 
-The manifest format is the one proposed in Buzz #3228 (not merged)
+The manifest format is the one proposed for block/buzz#3228 (not in Buzz)
 (``buzz_audit_export_manifest``, version 1), byte-compatible in both
 directions:
 
@@ -59,6 +59,7 @@ __all__ = [
     "signing_key_from_hex",
     "unsigned_manifest",
     "verify_against_export",
+    "verify_extends",
 ]
 
 MANIFEST_KIND = "buzz_audit_export_manifest"
@@ -242,6 +243,39 @@ def verify_against_export(
         raise ExportError("the export does not cover the manifest's range")
     if by_seq[manifest.to_seq]["hash"] != manifest.final_hash:
         raise ExportError("the chain at to_seq no longer has the signed final hash")
+
+
+def verify_extends(
+    earlier: ExportManifest,
+    later: ExportManifest,
+    later_entries: list[dict[str, Any]],
+    *,
+    expected_key_id: str,
+) -> None:
+    """Raise unless a later export is consistent with an earlier signed
+    manifest: *later* matches *later_entries*, both manifests are signed by the
+    pinned operator key for the same community, and the later export either
+    still has the earlier final hash at the earlier ``to_seq`` or starts right
+    after it and links to it. A rewrite of the earlier range between the two
+    exports fails here, even with every later hash recomputed."""
+    verify_against_export(later, later_entries, expected_key_id=expected_key_id)
+    if not earlier.verify_signature_offline():
+        raise ExportError("the earlier manifest's signature does not verify")
+    if earlier.exporter_key_id != expected_key_id.strip().lower():
+        raise ExportError("the earlier manifest is signed by a key other than the pinned operator key")
+    if earlier.community_id != later.community_id:
+        raise ExportError("the two manifests are for different communities")
+    if later.from_seq == earlier.to_seq + 1:
+        if later_entries[0]["prev_hash"] != earlier.final_hash:
+            raise ExportError("the later export does not link to the earlier signed final hash")
+    elif later.from_seq <= earlier.to_seq <= later.to_seq:
+        by_seq = {e["seq"]: e for e in later_entries}
+        if by_seq[earlier.to_seq]["hash"] != earlier.final_hash:
+            raise ExportError(
+                f"the later export no longer has the earlier signed final hash at seq {earlier.to_seq}"
+            )
+    else:
+        raise ExportError("the later export neither covers nor follows the earlier manifest's range")
 
 
 #: ``verify``'s exit code when the signature is valid but no operator key was

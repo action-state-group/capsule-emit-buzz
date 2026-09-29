@@ -25,10 +25,15 @@ dependencies = [
     # Ed25519 for the audit-export manifest (export_manifest.py). Pinned;
     # licensed Apache-2.0 OR BSD-3-Clause.
     "cryptography==50.0.1",
+    # The MMR, checkpoints, inclusion and consistency proofs for the
+    # manifest log (manifest_log.py). Also a dependency of capsule-emit;
+    # named here because it is imported directly. Apache-2.0.
+    "checkpointed-local-log>=0.4.0",
 ]
 
 [project.scripts]
 capsule-emit-buzz-export = "capsule_emit_buzz.export_manifest:main"
+capsule-emit-buzz-log = "capsule_emit_buzz.manifest_log:main"
 
 [project.optional-dependencies]
 dev = [

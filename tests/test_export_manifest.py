@@ -21,6 +21,7 @@ from capsule_emit_buzz.export_manifest import (
     signing_key_from_hex,
     unsigned_manifest,
     verify_against_export,
+    verify_extends,
 )
 
 VECTOR = json.loads((Path(__file__).parent / "vectors" / "audit-export-manifest-v1.json").read_text())
@@ -160,3 +161,45 @@ def test_the_operators_manifest_passes_against_its_pinned_key():
     entries = _chain(["a", "b", "c"])
     manifest = sign_manifest(unsigned_manifest(COMMUNITY, entries, WHEN), signing_key_from_hex(SEED))
     verify_against_export(manifest, entries, expected_key_id=manifest.exporter_key_id.upper())
+
+
+def _signed(entries):
+    return sign_manifest(unsigned_manifest(COMMUNITY, entries, WHEN), signing_key_from_hex(SEED))
+
+
+def test_a_later_export_that_covers_the_earlier_range_extends_it():
+    earlier, later_entries = _chain(["a", "b", "c"]), _chain(["a", "b", "c", "d", "e"])
+    m1, m2 = _signed(earlier), _signed(later_entries)
+    verify_extends(m1, m2, later_entries, expected_key_id=m1.exporter_key_id)
+
+
+def test_a_rewrite_between_two_exports_is_caught_even_with_the_hashes_recomputed():
+    m1 = _signed(_chain(["a", "b", "c"]))
+    rewritten = _chain(["a", "B-rewritten", "c", "d", "e"])
+    m2 = _signed(rewritten)  # the operator signs what is there now
+    with pytest.raises(ExportError, match="earlier signed final hash"):
+        verify_extends(m1, m2, rewritten, expected_key_id=m1.exporter_key_id)
+
+
+def test_an_incremental_export_must_link_to_the_earlier_final_hash():
+    full = _chain(["a", "b", "c", "d", "e"])
+    m1, tail = _signed(full[:3]), full[3:]
+    verify_extends(m1, _signed(tail), tail, expected_key_id=m1.exporter_key_id)
+    other_tail = _chain(["a", "B", "c", "d", "e"])[3:]
+    with pytest.raises(ExportError, match="does not link"):
+        verify_extends(m1, _signed(other_tail), other_tail, expected_key_id=m1.exporter_key_id)
+
+
+def test_extends_refuses_another_key_another_community_or_a_gap():
+    earlier, later = _chain(["a", "b", "c"]), _chain(["a", "b", "c", "d"])
+    m1, m2 = _signed(earlier), _signed(later)
+    other = sign_manifest(unsigned_manifest(COMMUNITY, earlier, WHEN), signing_key_from_hex("09" * 32))
+    with pytest.raises(ExportError, match="pinned"):
+        verify_extends(other, m2, later, expected_key_id=m1.exporter_key_id)
+    elsewhere = sign_manifest(unsigned_manifest("f1cb11e0-0000-0000-0000-000000000002", later, WHEN),
+                              signing_key_from_hex(SEED))
+    with pytest.raises(ExportError, match="different communities"):
+        verify_extends(m1, elsewhere, later, expected_key_id=m1.exporter_key_id)
+    gap = _chain(["x", "y"], start=5)
+    with pytest.raises(ExportError, match="neither covers nor follows"):
+        verify_extends(m1, _signed(gap), gap, expected_key_id=m1.exporter_key_id)
