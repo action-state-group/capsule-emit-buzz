@@ -19,6 +19,9 @@ keywords = ["buzz", "nostr", "evidence-record", "capsule", "connector", "adapter
 # package top level, cut the release adapters pin") — pin that floor.
 dependencies = [
     "capsule-emit>=0.8.4",
+    # BIP-340 Schnorr verification of each Nostr event's signature
+    # (libsecp256k1). Pinned; licensed MIT OR Apache-2.0.
+    "coincurve==21.0.0",
 ]
 
 [project.optional-dependencies]

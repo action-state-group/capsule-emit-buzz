@@ -16,7 +16,7 @@ key. It implements the neutral **`ConnectorPort`** contract published by
 that substrate, it does not fork or extend it.
 
 ```
-python -m pytest              # Python reference + the distinct-id / round-trip tests
+python -m pytest              # verification, the distinct-id / round-trip tests
 python fixtures/gen_fixtures.py   # regenerate the two-language parity fixtures
 ( cd parity/go && go test ./... ) # Go asserts the same fixtures byte-for-byte
 ```
@@ -32,7 +32,12 @@ python fixtures/gen_fixtures.py   # regenerate the two-language parity fixtures
   - `capture(event) -> received()` — a Buzz event we observed is a **foreign,
     already-signed artifact** (the Nostr author signed it before we saw it), so
     it is `received()` (a carry), **never `seal()`**. Sealing would falsely
-    claim this operator authored content someone else signed.
+    claim this operator authored content someone else signed. Before anything
+    is logged, the event's exact JSON is verified as a signed NIP-01 event:
+    its `id` must be the hash of its serialization, and its BIP-340 signature
+    must verify under its `pubkey` (coincurve, over libsecp256k1). An
+    unsigned or altered event raises `NostrEventError` (a reason code, never
+    the content) and nothing is logged.
   - declared **boundary class `listener`** — a passive tap on Buzz's event
     stream, not a gateway, decorator, or engine.
 - The **host principal** is derived from the event's Nostr pubkey via the
@@ -59,17 +64,32 @@ onto the neutral one.
 
 ## The one invariant: `event_id` != `semantic_digest`
 
-`event_id` is the **Nostr transport reference** — a specific transmission, not
-recomputable from bytes. `semantic_digest` is the **content digest** —
-recomputable, identical for identical content. They are **two separate fields
-and are never conflated**. The proof is a real test: two events with identical
-content and different ids produce **different** records with the **same**
-semantic digest (`tests/test_distinct_id_same_digest.py`).
+`event_id` is the **Nostr event id**: the hash of the event's NIP-01
+serialization, which its author signed. `semantic_digest` is the **SHA-256 of
+the full signed event exactly as received**, and the carried artifact is those
+same bytes. They are **two separate fields and are never conflated**. Each
+record also names its event: `{event_id, pubkey, semantic_digest}` under
+`buzz_event` in the record body.
+
+The digest is bound to one event. Two events with the same text have different
+ids and different digests; the same event received twice has the same digest.
+(The `buzz.*` profile drafts describe `semantic_digest` as the content identity
+of the payload; this connector binds it to the full event for the reason in
+the next section. This is provisional until those profiles settle it.)
+
+## No message text is stored
+
+A record never holds an event's text, and it never holds a bare hash of the
+text either. A bare `sha256(text)` of a short message ("yes", "approved") could
+be confirmed by hashing guessed texts. The record's digest covers the whole
+signed event: its id, signature, author, time, tags and text. So the record
+alone doesn't confirm a guessed text. Linking a record to its text takes the
+event itself.
 
 ## Boundary (this is neutral, donatable OSS)
 
 - **Digests only.** No record stores message text, moderated content, job
-  output, or release-note prose. Every content reference is a digest.
+  output, or release-note prose (see *No message text is stored*).
 - **No per-user history.** Nothing aggregates a principal's activity across
   records.
 - **No score or rating field**, anywhere.
@@ -87,6 +107,15 @@ semantic digest (`tests/test_distinct_id_same_digest.py`).
 - "Buzz" is used only as a public project name. A fail-closed neutrality
   gate (`.github/workflows/neutrality.yml`) checks this repository's
   vocabulary at CI.
+
+## Witnessing
+
+`BuzzConnector(..., witness=None)` follows capsule-emit's default: witnessing
+is on, pointed at the public witness. What leaves the process is a signed
+checkpoint of this connector's log (its size, a root hash and a time), never a
+record's content. It goes once 100 records have accumulated or 900 seconds have
+passed. Turn it off with `witness=False`, or `CAPSULE_WITNESS=off` in the
+environment.
 
 ## Licensing
 

@@ -1,95 +1,85 @@
 # SPDX-License-Identifier: Apache-2.0
-"""``BuzzEvent`` — the minimal shape of one observed Buzz/Nostr event, plus the
-host-principal derivation.
+"""``BuzzEvent`` — one observed Buzz event: a signed Nostr event, verified on
+arrival, plus the host-principal derivation.
 
-A Buzz event is a Nostr event: it is already signed by its author's Nostr key
-before this adapter ever sees it. This module models only what the adapter
-needs to (a) derive a host principal from the event's Nostr pubkey and (b)
-compute the two distinct subject fields (``event_id`` and ``semantic_digest``)
-in :mod:`capsule_emit_buzz.record`.
+A Buzz event is a Nostr event, already signed by its author's Nostr key before
+this adapter sees it. A ``BuzzEvent`` is made only from the event's exact JSON
+bytes as received, and only when those bytes verify (``nip01.verify_event``):
+the id is the NIP-01 hash of the event and the BIP-340 signature is the
+pubkey's. There is no way to build one from fields, so an unsigned or altered
+event never becomes a record.
 
 Boundary (enforced by construction here, and by the neutrality gate at CI):
-  * DIGESTS ONLY. This type deliberately has no field for message text /
-    moderated content / job output / release-note prose. The caller passes the
-    canonical *bytes* it wants committed; we digest them and never retain them.
-  * event_id is the Nostr transport id (a specific transmission). It is NOT a
-    content digest and is never reused as one — see record.py.
+  * NO TEXT IS KEPT. The event's bytes are held only to verify them and to
+    commit to them by digest. No record field carries message text.
+  * event_id is the Nostr event id. It is NOT the semantic digest (see
+    record.py).
   * No per-user history, no score or rating field. This type carries one
-    event; nothing aggregates across events, and there is no numeric rating
-    field anywhere.
+    event; nothing aggregates across events.
 """
 from __future__ import annotations
 
 import hashlib
-import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
-__all__ = ["BuzzEvent", "host_principal_ref", "NOSTR_PUBKEY_PROFILE"]
+from .nip01 import NostrEventError, verify_event
+
+__all__ = ["BuzzEvent", "NostrEventError", "host_principal_ref", "NOSTR_PUBKEY_PROFILE"]
 
 #: The host-principal profile id this adapter derives a principal_ref under.
 #: OWNED by capsule-registry (the `nostr-pubkey` host-principal profile),
 #: NOT here — this constant only NAMES it so record.py can stamp the scheme.
 NOSTR_PUBKEY_PROFILE = "nostr-pubkey"
 
-#: A Nostr public key's wire form: 64-char lowercase hex (the raw x-only
-#: secp256k1/BIP-340 key). A bech32 ``npub`` is a display encoding only and is
-#: never the wire value the profile registers.
-_HEX64 = re.compile(r"^[0-9a-f]{64}$")
 
 
 @dataclass(frozen=True)
 class BuzzEvent:
-    """One observed Buzz (Nostr) event, reduced to what the adapter needs.
+    """One observed Buzz (Nostr) event, verified.
 
     Attributes:
-        event_id: The Nostr event id — a 64-char lowercase-hex transport
-            reference identifying this specific transmission. NOT a content
-            digest (two different transmissions of identical content have
-            different event ids); never reused as ``semantic_digest``.
-        pubkey: The author's Nostr public key (64-char lowercase hex). The
-            host principal is derived from this via the ``nostr-pubkey``
-            profile. Key control is never authority (see the profile) — this
-            records who signed, not what they were entitled to do.
-        kind: The Nostr event kind, used only to classify the event as an
-            observation or an effect. See :meth:`is_effect_kind`.
-        content_bytes: The canonical bytes of the content/decision/gate this
-            event carries — digested into ``semantic_digest`` by record.py and
-            then discarded. NEVER stored on any record (digests only).
+        event_bytes: The event's JSON exactly as received. It must verify as a
+            signed NIP-01 event, or construction raises
+            :class:`~capsule_emit_buzz.nip01.NostrEventError`.
         relay_hint: Optional relay URL where events signed by this key are
             commonly found. Strictly informational; never load-bearing for
-            identity, verification, or authority. Its absence, staleness, or
-            falsity never changes what the record establishes.
+            identity, verification, or authority.
+
+    Derived from the verified event (not settable): ``event_id``, ``pubkey``,
+    ``created_at``, ``kind``.
     """
 
-    event_id: str
-    pubkey: str
-    kind: int
-    content_bytes: bytes
+    event_bytes: bytes
     relay_hint: str | None = None
+    event_id: str = field(init=False)
+    pubkey: str = field(init=False)
+    created_at: int = field(init=False)
+    kind: int = field(init=False)
 
     def __post_init__(self) -> None:
-        if not _HEX64.match(self.event_id):
-            raise ValueError(
-                "BuzzEvent.event_id must be a 64-char lowercase-hex Nostr event id"
-            )
-        if not _HEX64.match(self.pubkey):
-            raise ValueError(
-                "BuzzEvent.pubkey must be a 64-char lowercase-hex Nostr public key "
-                "(the raw x-only key; a bech32 npub is a display encoding, not the wire value)"
-            )
-        if not isinstance(self.content_bytes, (bytes, bytearray)):
-            raise TypeError("BuzzEvent.content_bytes must be bytes")
+        if not isinstance(self.event_bytes, (bytes, bytearray)):
+            raise TypeError("BuzzEvent.event_bytes must be the event's JSON bytes")
+        event = verify_event(bytes(self.event_bytes))
+        object.__setattr__(self, "event_bytes", bytes(self.event_bytes))
+        object.__setattr__(self, "event_id", event["id"])
+        object.__setattr__(self, "pubkey", event["pubkey"])
+        object.__setattr__(self, "created_at", event["created_at"])
+        object.__setattr__(self, "kind", event["kind"])
+
+    @classmethod
+    def from_nip01(cls, raw: bytes | str, *, relay_hint: str | None = None) -> BuzzEvent:
+        """A verified event from its JSON as received."""
+        return cls(raw.encode("utf-8") if isinstance(raw, str) else raw, relay_hint=relay_hint)
 
     def semantic_digest(self) -> str:
-        """SHA-256 over the event's canonical content bytes, lowercase hex.
+        """SHA-256 of the full signed event, exactly as received, lowercase hex.
 
-        This is CONTENT identity: it is recomputable from the same bytes and is
-        therefore identical for two events with identical content, regardless of
-        their (distinct) Nostr event ids. That property is exactly what the
-        distinct-id test in the tests/ dir proves. The bytes are digested and
-        not retained — no message text ever lands on a record.
+        It is bound to this one event: the bytes include its id and signature,
+        so two events with the same content still have different digests, and
+        the digest of a short message can't be confirmed by hashing a guessed
+        text. The same event received twice has the same digest.
         """
-        return hashlib.sha256(bytes(self.content_bytes)).hexdigest()
+        return hashlib.sha256(self.event_bytes).hexdigest()
 
     def is_effect_kind(self) -> bool:
         """Whether this event kind represents an effect (vs an observation).

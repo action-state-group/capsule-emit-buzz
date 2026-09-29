@@ -19,7 +19,9 @@ Two Buzz-specific decisions the contract leaves to the adapter:
     (a carry, brought in as-transmitted under their declared type) — sealing
     them would falsely assert this adapter's operator authored content someone
     else signed. So ``BuzzEvent`` always maps to a foreign ConnectorEvent and
-    ``capture()`` always takes the ``received()`` branch.
+    ``capture()`` always takes the ``received()`` branch. The carried bytes are
+    the event's exact JSON, and ``capture()`` verifies them (NIP-01 id and
+    BIP-340 signature) before anything is logged.
 
 2.  classify() maps the Buzz event kind, not raw HTTP/MCP signals.
     A moderation DECISION and a RELEASE going live are effects (a write crossed
@@ -71,10 +73,24 @@ class BuzzConnector:
     #: Declared, not inferred — a passive tap on Buzz's event stream.
     boundary_class: str = BoundaryClass.LISTENER.value
 
-    def __init__(self, *, operator: str, developer: str, ledger: str = "ledger.jsonl") -> None:
+    def __init__(
+        self,
+        *,
+        operator: str,
+        developer: str,
+        ledger: str = "ledger.jsonl",
+        witness: bool | None = None,
+    ) -> None:
+        """``witness`` follows capsule-emit when left ``None``: witnessing is
+        on (unless ``CAPSULE_WITNESS=off``), and what leaves the process is a
+        signed checkpoint of this log (its size, a root hash and a time),
+        never a record's content, once 100 records have accumulated or 900
+        seconds have passed. ``witness=False`` turns it off for this
+        connector."""
         self._operator = operator
         self._developer = developer
         self._ledger = ledger
+        self._witness = witness
 
     # -- ConnectorPort ------------------------------------------------------
 
@@ -101,12 +117,27 @@ class BuzzConnector:
                 "BuzzConnector.capture: a Buzz event is a foreign, already-signed "
                 "artifact and must be carried via received(), never sealed"
             )
+        raw = event.foreign_bytes
+        # The carried bytes must be a signed Nostr event that verifies, however
+        # the ConnectorEvent was built: NostrEventError otherwise, and nothing
+        # is logged.
+        buzz = BuzzEvent(raw.encode("utf-8") if isinstance(raw, str) else bytes(raw))
         return received(
-            event.foreign_bytes,
+            buzz.event_bytes,
             type=event.foreign_type,
             operator=self._operator,
             developer=self._developer,
             ledger=self._ledger,
+            witness=self._witness,
+            # The record names the event it carries: its Nostr id, its
+            # author's key, and the digest of the full signed event.
+            extra_compute={
+                "buzz_event": {
+                    "event_id": buzz.event_id,
+                    "pubkey": buzz.pubkey,
+                    "semantic_digest": buzz.semantic_digest(),
+                }
+            },
         )
 
     # -- Buzz-side convenience ---------------------------------------------
@@ -125,7 +156,7 @@ class BuzzConnector:
             http_method=None,
             mcp_read_only_hint=not event.is_effect_kind(),
             foreign=True,
-            foreign_bytes=bytes(event.content_bytes),
+            foreign_bytes=event.event_bytes,
             foreign_type=_BUZZ_FOREIGN_TYPE,
         )
 

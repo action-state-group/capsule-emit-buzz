@@ -6,10 +6,12 @@ The one invariant this module exists to make un-collapsible:
     subject = {event_id, semantic_digest}
 
 ``event_id`` and ``semantic_digest`` are TWO SEPARATE FIELDS. ``event_id`` is
-the Nostr transport reference (a specific transmission, not recomputable from
-bytes). ``semantic_digest`` is the content digest (recomputable, identical for
-identical content). A conforming producer MUST NOT emit a record where one
-field stands in for the other; a conforming validator MUST reject one that
+the Nostr event id (NIP-01: the hash of the event's serialization, which the
+author signed). ``semantic_digest`` is the SHA-256 of the full signed event
+exactly as received, so it is bound to that one event: two events with the
+same content have different digests, and a short message can't be confirmed
+by hashing a guessed text. A conforming producer MUST NOT emit a record where
+one field stands in for the other; a conforming validator MUST reject one that
 does. This mirrors the ``buzz.*`` profiles' two-field distinctness rule
 (owned by capsule-registry, referenced not redefined here).
 """
@@ -41,8 +43,8 @@ class EvidenceRecordSubject:
     Two distinct fields, never conflated:
 
     Attributes:
-        event_id: Nostr transport reference (64-hex). Owned by the event.
-        semantic_digest: SHA-256 content digest (64-hex). Owned by the event.
+        event_id: The Nostr event id (64-hex). Owned by the event.
+        semantic_digest: SHA-256 of the full signed event (64-hex).
         principal_ref: ``nostr-pubkey:<hex>`` derived from the event pubkey.
         principal_ref_relay_hint: Optional, informational relay URL. Never
             load-bearing; carried separately from ``principal_ref``.
@@ -85,9 +87,8 @@ def record_to_event(subject: EvidenceRecordSubject) -> BuzzEventShape:
     ``event_id`` (the transport id) and ``pubkey`` (recovered from the
     ``nostr-pubkey:<hex>`` principal_ref), plus the optional ``relay_hint``.
 
-    NOT recoverable — by design, not omission: ``content_bytes``. The record
-    stores only ``semantic_digest``; the bytes were never retained (digests
-    only). So the round-trip is byte-identical on the fields the event owns and
+    NOT recoverable — by design, not omission: the event's content. The
+    record stores only ``semantic_digest``; the text is never stored. So the round-trip is byte-identical on the fields the event owns and
     the record legitimately carries, and is silent on the content it must not.
     """
     scheme, _, pubkey = subject.principal_ref.partition(":")

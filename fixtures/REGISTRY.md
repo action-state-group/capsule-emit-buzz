@@ -9,11 +9,20 @@ was chosen to match the sibling adapter `capsule-emit-dapr`, which is a Go repo.
 
 ```
 fixtures/
-  gen_fixtures.py          Python reference generator (source of record files)
-  events/<name>.json       input Buzz (Nostr) events
-  records/<name>.json      expected EvidenceRecord subject the reference derives
+  gen_fixtures.py          Python reference generator
+  events/<name>.json       a signed Nostr event, exactly as a relay carries it
+  events/<name>.meta.json  its profile, and an optional relay hint
+  records/<name>.json      the record subject the reference derives
+  nip01-vectors/           real signed events from another implementation
   REGISTRY.md              this file
 ```
+
+The events are signed with a public test key (the BIP-340 test vectors'
+secret key 3) and zero auxiliary randomness, so they regenerate byte for byte.
+The Go harness recomputes each event's NIP-01 id from its fields, checks it
+against the event and the record, and checks the record's `semantic_digest`
+(SHA-256 of the event file's exact bytes). It also recomputes the ids of the
+`nip01-vectors` events (from rust-nostr, MIT; see NOTICE).
 
 ## Regenerating
 
@@ -48,8 +57,8 @@ They are stored as rejection reasons (they cannot be *derived* records):
 ## Boundary the fixtures observe
 
 - **Digests only.** No fixture record carries message text, moderated content,
-  job output, or release-note prose. Content appears only in the *event* inputs,
-  as `content_hex` (exact bytes to digest), and is never copied onto a record.
+  job output, or release-note prose. Text appears only in the signed *event*
+  inputs, and is never copied onto a record.
 - **`event_id` != `semantic_digest`.** Two distinct fields on every subject.
 - **No per-user history, no scores.** No field aggregates across events; no
   numeric score or rating field exists.
