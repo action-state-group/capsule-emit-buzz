@@ -1,0 +1,17 @@
+{
+  "about": "A version-1 audit export manifest signed by the signing path proposed for Buzz's own audit export (SigningFields -> canonical JSON -> SHA-256 hex -> Ed25519 over the hex digest's ASCII bytes), in Rust with ed25519-dalek 3.0.0, serde_json 1.0.150, chrono 0.4.45, uuid 1.23.1. The key is a public test vector: the 32-byte seed of all 0x07 bytes.",
+  "manifest": {
+    "v": 1,
+    "kind": "buzz_audit_export_manifest",
+    "community_id": "f1cb11e0-0000-0000-0000-000000000001",
+    "from_seq": 1,
+    "to_seq": 3,
+    "entry_count": 3,
+    "final_hash": "a0f718a467d5fcdbf84bde925c420499f781232ae4fc5e0dc56112ae58eb07b8",
+    "exported_at": "2026-09-25T18:04:11Z",
+    "exporter_key_id": "ea4a6c63e29c520abef5507b132ec5f9954776aebebe7b92421eea691446d22c",
+    "signature": "d356feb58b2c2fe9fac453d14e1a3bc806c90d1dcc964c2478366c0cf74d1439398b4f64739ffb15e53c91a2f71b9436ed3c2820b8d0715b1f226899ccfdbf09"
+  },
+  "signing_body": "{\"community_id\":\"f1cb11e0-0000-0000-0000-000000000001\",\"entry_count\":3,\"exported_at\":\"2026-09-25T18:04:11Z\",\"exporter_key_id\":\"ea4a6c63e29c520abef5507b132ec5f9954776aebebe7b92421eea691446d22c\",\"final_hash\":\"a0f718a467d5fcdbf84bde925c420499f781232ae4fc5e0dc56112ae58eb07b8\",\"from_seq\":1,\"kind\":\"buzz_audit_export_manifest\",\"to_seq\":3,\"v\":1}",
+  "digest_hex": "912caf34b3fbc670bcc2e1234e3396c5fc8357d348d448032cb4015e6735a8bb"
+}
