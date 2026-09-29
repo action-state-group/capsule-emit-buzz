@@ -22,7 +22,12 @@ dependencies = [
     # BIP-340 Schnorr verification of each Nostr event's signature
     # (libsecp256k1). Pinned; licensed MIT OR Apache-2.0.
     "coincurve==21.0.0",
+    # Ed25519 for the audit-export manifest (export_manifest.py).
+    "cryptography>=41",
 ]
+
+[project.scripts]
+capsule-emit-buzz-export = "capsule_emit_buzz.export_manifest:main"
 
 [project.optional-dependencies]
 dev = [

@@ -117,6 +117,35 @@ record's content. It goes once 100 records have accumulated or 900 seconds have
 passed. Turn it off with `witness=False`, or `CAPSULE_WITNESS=off` in the
 environment.
 
+## Signed audit-export manifest
+
+Buzz keeps a per-community, append-only hash chain of audit entries. The chain
+is tamper-evident but keyless: someone with write access to its database can
+rewrite an entry and recompute every later hash, and the rewritten chain still
+checks out. `capsule_emit_buzz.export_manifest` signs a small manifest over an
+export of that chain with a key that never lives in the database. A later
+export of the same range that was rewritten keeps its links but no longer
+matches the signed final hash.
+
+```
+capsule-emit-buzz-export sign --export entries.jsonl --community-id <uuid> \
+    --key-file signing-key.hex --out manifest.json
+capsule-emit-buzz-export verify --manifest manifest.json --export entries.jsonl
+```
+
+- The input is an export as Buzz's operator export writes it: one JSON entry
+  per line, with `seq`, `hash` and `prev_hash` hex-encoded. It needs no access
+  to Buzz's database and changes nothing in Buzz.
+- The manifest is the `buzz_audit_export_manifest` version-1 format, and it is
+  byte-compatible both ways. A manifest signed by the Rust signing path verifies
+  here, and this signer reproduces it exactly (`tests/vectors/`).
+- The manifest records the range, the entry count and the final hash only. No
+  entry's content, actor or detail is copied into it.
+- The export's links are checked (`prev_hash` and `seq`). Recomputing each
+  entry's hash stays with Buzz's own chain verifier.
+- The signing key is read from `--key-file` or `BUZZ_AUDIT_SIGNING_KEY` (a
+  32-byte seed, hex) and is never printed or written.
+
 ## Licensing
 
 Apache-2.0 (see [`LICENSE`](LICENSE)). `capsule-emit` is Apache-2.0. See
