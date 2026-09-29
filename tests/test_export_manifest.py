@@ -203,3 +203,15 @@ def test_extends_refuses_another_key_another_community_or_a_gap():
     gap = _chain(["x", "y"], start=5)
     with pytest.raises(ExportError, match="neither covers nor follows"):
         verify_extends(m1, _signed(gap), gap, expected_key_id=m1.exporter_key_id)
+
+
+def test_a_later_export_that_starts_before_its_from_seq_is_indexed_by_seq():
+    """The export may hold entries before the later manifest's from_seq; the
+    link to the earlier manifest is read at from_seq, never at the first line."""
+    full = _chain(["a", "b", "c", "d", "e"])
+    m1 = _signed(full[:3])
+    m2 = _signed(full[3:])  # signs seq 4..5
+    verify_extends(m1, m2, full, expected_key_id=m1.exporter_key_id)  # export starts at seq 1
+    rewritten = _chain(["a", "B", "c", "d", "e"])
+    with pytest.raises(ExportError, match="does not link"):
+        verify_extends(m1, _signed(rewritten[3:]), rewritten, expected_key_id=m1.exporter_key_id)

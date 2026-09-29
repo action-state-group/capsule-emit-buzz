@@ -152,14 +152,16 @@ capsule-emit-buzz-export verify --manifest manifest.json --export entries.jsonl 
   `hash` and `prev_hash` hex-encoded. It needs no access to Buzz's database and
   changes nothing in Buzz.
 - The manifest is the `buzz_audit_export_manifest` version-1 format proposed
-  for #3228. It is byte-compatible both ways with a Rust signing path written
-  for that proposal: a manifest it signed verifies here, and this signer
-  reproduces it exactly (`tests/vectors/`).
+  for #3228. `tests/vectors/` holds a manifest signed outside this repository
+  with a public test key: it verifies here, and this signer reproduces it byte
+  for byte.
 - The manifest records the range, the entry count and the final hash only. No
   entry's content, actor or detail is copied into it.
 - The export's links are checked (`prev_hash` and `seq`), and its final hash
-  is compared with the signed one. Entry hashes are not recomputed here; that
-  stays with Buzz's chain verifier.
+  is compared with the signed one. **Entry hashes are not recomputed here.** An
+  edit that leaves the stored hashes as they were (so the hash no longer
+  matches the entry) is for Buzz's own chain verifier to catch. This tool
+  catches the other case: an edit with every hash recomputed.
 - The signing key is read from `--key-file` or `BUZZ_AUDIT_SIGNING_KEY` (a
   32-byte seed, hex) and is never printed or written.
 

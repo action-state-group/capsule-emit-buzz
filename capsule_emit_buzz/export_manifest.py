@@ -265,12 +265,18 @@ def verify_extends(
         raise ExportError("the earlier manifest is signed by a key other than the pinned operator key")
     if earlier.community_id != later.community_id:
         raise ExportError("the two manifests are for different communities")
+    by_seq = {e["seq"]: e for e in later_entries}
     if later.from_seq == earlier.to_seq + 1:
-        if later_entries[0]["prev_hash"] != earlier.final_hash:
+        first = by_seq.get(later.from_seq)
+        if first is None:
+            raise ExportError(f"the later export has no entry at its from_seq {later.from_seq}")
+        if first["prev_hash"] != earlier.final_hash:
             raise ExportError("the later export does not link to the earlier signed final hash")
     elif later.from_seq <= earlier.to_seq <= later.to_seq:
-        by_seq = {e["seq"]: e for e in later_entries}
-        if by_seq[earlier.to_seq]["hash"] != earlier.final_hash:
+        at = by_seq.get(earlier.to_seq)
+        if at is None:
+            raise ExportError(f"the later export has no entry at seq {earlier.to_seq}")
+        if at["hash"] != earlier.final_hash:
             raise ExportError(
                 f"the later export no longer has the earlier signed final hash at seq {earlier.to_seq}"
             )

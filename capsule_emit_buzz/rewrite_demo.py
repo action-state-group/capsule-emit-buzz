@@ -139,6 +139,8 @@ def run(*, rewrite: bool = True, say: Callable[[str], None] = lambda _line: None
         say("3. exported seq 1..5, signed M2, logged it; the log at M2 extends the log at M1")
 
     try:
+        # A demo shortcut: the pin is read from M1 itself. A real verifier pins
+        # the operator's public key from a source it trusts, never the manifest.
         verify_extends(m1, m2, export2, expected_key_id=m1.exporter_key_id)
         caught, reason = False, "the second export is consistent with M1"
     except ExportError as exc:
