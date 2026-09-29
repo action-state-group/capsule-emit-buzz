@@ -3,6 +3,11 @@
 Buzz-side **event → EvidenceRecord** adapter and parity fixtures.
 Apache-2.0.
 
+**An independent connector.** It is not made, endorsed or supported by the
+[Buzz](https://github.com/block/buzz) project, its maintainers, or Block, and
+this repository claims no affiliation with them. It reads Buzz's public event
+format and changes nothing in Buzz.
+
 This repository turns an observed **Buzz** event (a signed Nostr event) into an
 EvidenceRecord subject, keeping the event's transport id distinct from its
 content digest, and derives the host principal from the event's Nostr public
