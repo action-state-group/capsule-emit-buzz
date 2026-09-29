@@ -35,7 +35,7 @@
 # >>> IF YOU ADD A STEP THAT RUNS, BUILDS, OR INSTALLS ANYTHING FROM ./pr,
 # >>> YOU HAVE HANDED THE NEUTRALITY_TERMS SECRET TO ANY STRANGER WHO OPENS
 # >>> A PULL REQUEST. Do not do it. Add such a step to a separate workflow on
-# >>> `pull_request` (see tests.yml), which correctly receives no secrets.
+# >>> `pull_request`, which correctly receives no secrets.
 #
 # To make this a required pre-merge gate, enable branch protection on `main`
 # and require the "neutrality" status check (repo Settings -> Branches).
