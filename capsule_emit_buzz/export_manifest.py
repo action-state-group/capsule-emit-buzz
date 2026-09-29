@@ -10,11 +10,12 @@ database closes that gap for anyone who saved it: a later export of the same
 range that was rewritten no longer matches the signed final hash.
 
 This module signs and verifies such manifests from an existing export (one
-JSON object per entry, as Buzz's operator export writes them: ``seq``,
+JSON object per entry, as the export proposed in Buzz #3228 (not merged)
+writes them: ``seq``,
 ``hash``, ``prev_hash``, ... with byte fields hex-encoded). It changes nothing
 in Buzz and needs no access to its database.
 
-The manifest format is the one proposed for Buzz's own audit export
+The manifest format is the one proposed in Buzz #3228 (not merged)
 (``buzz_audit_export_manifest``, version 1), byte-compatible in both
 directions:
 
@@ -148,8 +149,8 @@ class ExportManifest:
 
 
 def signing_key_from_hex(seed_hex: str) -> Ed25519PrivateKey:
-    """The Ed25519 key for a 32-byte seed given as hex (the form Buzz's own
-    export takes its signing key in)."""
+    """The Ed25519 key for a 32-byte seed given as hex (the form the #3228
+    proposal's export takes its signing key in)."""
     seed = bytes.fromhex(seed_hex.strip())
     if len(seed) != 32:
         raise ExportError("a signing key is 32 bytes of hex")
@@ -216,13 +217,24 @@ def sign_manifest(manifest: ExportManifest, key: Ed25519PrivateKey) -> ExportMan
     return replace(unsigned, signature=signature.hex())
 
 
-def verify_against_export(manifest: ExportManifest, entries: list[dict[str, Any]]) -> None:
+def verify_against_export(
+    manifest: ExportManifest, entries: list[dict[str, Any]], *, expected_key_id: str | None = None
+) -> None:
     """Raise unless *manifest* is validly signed and describes *entries*: the
     same range, count and final hash, over an export whose links hold. A range
     that was rewritten and recomputed after the manifest was signed passes the
-    link check but fails the final-hash comparison."""
+    link check but fails the final-hash comparison. Entry hashes are not
+    recomputed here.
+
+    *expected_key_id* is the operator's public key (hex), pinned by whoever
+    checks. THE PIN IS THE SECURITY PROPERTY: anyone can sign a manifest for a
+    rewritten export with a fresh key, and without a pin that manifest's
+    signature is valid too. With a pin, a manifest signed by any other key is
+    refused."""
     if not manifest.verify_signature_offline():
         raise ExportError("the manifest's signature does not verify")
+    if expected_key_id is not None and manifest.exporter_key_id != expected_key_id.strip().lower():
+        raise ExportError("the manifest is signed by a key other than the pinned operator key")
     check_links(entries)
     by_seq = {e["seq"]: e for e in entries}
     in_range = [e for e in entries if manifest.from_seq <= e["seq"] <= manifest.to_seq]
@@ -232,9 +244,15 @@ def verify_against_export(manifest: ExportManifest, entries: list[dict[str, Any]
         raise ExportError("the chain at to_seq no longer has the signed final hash")
 
 
+#: ``verify``'s exit code when the signature is valid but no operator key was
+#: pinned: not a failure of the checks, and never success either.
+UNPINNED_EXIT = 3
+
+
 def main(argv: list[str] | None = None) -> int:
     """``sign``: write a signed manifest for an export. ``verify``: check a
-    manifest's signature and that an export still matches it. The signing key
+    manifest's signature, the operator key it was signed with (``--expect-key``;
+    exit 3 without it), and that an export still matches it. The signing key
     is read from ``--key-file`` or ``BUZZ_AUDIT_SIGNING_KEY`` (32-byte seed,
     hex) and never printed."""
     import argparse
@@ -251,6 +269,11 @@ def main(argv: list[str] | None = None) -> int:
     v = sub.add_parser("verify", help="check a manifest against an export")
     v.add_argument("--manifest", required=True)
     v.add_argument("--export", required=True)
+    v.add_argument(
+        "--expect-key",
+        help="the operator's public key (hex). Without it, a valid signature proves nothing about who "
+        "signed, and verify exits 3",
+    )
     args = parser.parse_args(argv)
 
     try:
@@ -273,8 +296,14 @@ def main(argv: list[str] | None = None) -> int:
         else:
             with open(args.manifest, encoding="utf-8") as fh:
                 manifest = ExportManifest.from_json(json.load(fh))
-            verify_against_export(manifest, entries)
-            print(f"ok: signed by {manifest.exporter_key_id}; seq {manifest.from_seq}..{manifest.to_seq} unchanged")
+            verify_against_export(manifest, entries, expected_key_id=args.expect_key)
+            span = (f"seq {manifest.from_seq}..{manifest.to_seq}: links and final hash match "
+                    "(entry hashes are not recomputed here)")
+            if args.expect_key is None:
+                print(f"signature valid under an UNPINNED key {manifest.exporter_key_id}; {span}. "
+                      "Anyone can sign a manifest: pass --expect-key with the operator's public key.")
+                return UNPINNED_EXIT
+            print(f"ok: signed by the pinned key {manifest.exporter_key_id}; {span}")
     except (ExportError, OSError, json.JSONDecodeError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1

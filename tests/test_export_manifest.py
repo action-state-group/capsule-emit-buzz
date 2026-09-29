@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 
 from capsule_emit_buzz.export_manifest import (
+    UNPINNED_EXIT,
     ExportError,
     ExportManifest,
     check_links,
@@ -121,10 +122,14 @@ def test_the_command_line_signs_and_verifies_without_printing_the_key(tmp_path, 
     key.write_text(SEED)
     out = tmp_path / "manifest.json"
     assert main(["sign", "--export", str(export), "--community-id", COMMUNITY, "--key-file", str(key), "--out", str(out)]) == 0
-    assert main(["verify", "--manifest", str(out), "--export", str(export)]) == 0
+    pinned = json.loads(out.read_text())["exporter_key_id"]
+    assert main(["verify", "--manifest", str(out), "--export", str(export), "--expect-key", pinned]) == 0
+    assert "links and final hash match" in capsys.readouterr().out
+    assert main(["verify", "--manifest", str(out), "--export", str(export)]) == UNPINNED_EXIT
+    assert "UNPINNED" in capsys.readouterr().out, "never plain ok without a pinned key"
     tampered = _chain(["a", "B", "c"])
     export.write_text("".join(json.dumps(e) + "\n" for e in tampered))
-    assert main(["verify", "--manifest", str(out), "--export", str(export)]) == 1
+    assert main(["verify", "--manifest", str(out), "--export", str(export), "--expect-key", pinned]) == 1
     printed = capsys.readouterr()
     assert SEED not in printed.out + printed.err
     assert SEED not in out.read_text()
@@ -135,3 +140,23 @@ def test_load_export_refuses_malformed_lines():
         load_export(['{"seq": 1, "hash": "nothex", "prev_hash": null}'])
     with pytest.raises(ExportError):
         load_export([])
+
+
+def test_a_manifest_re_signed_with_a_fresh_key_fails_against_the_pinned_key():
+    """The attack the pin stops: rewrite the export, then sign a new manifest
+    for it with a fresh key. Its signature is valid; only the pin refuses it."""
+    original = _chain(["a", "b", "c"])
+    operator = signing_key_from_hex(SEED)
+    genuine = sign_manifest(unsigned_manifest(COMMUNITY, original, WHEN), operator)
+    rewritten = _chain(["a", "B-rewritten", "c"])
+    forged = sign_manifest(unsigned_manifest(COMMUNITY, rewritten, WHEN), signing_key_from_hex("09" * 32))
+    assert forged.verify_signature_offline(), "the forged manifest's own signature is valid"
+    verify_against_export(forged, rewritten)  # unpinned: nothing catches it
+    with pytest.raises(ExportError, match="pinned"):
+        verify_against_export(forged, rewritten, expected_key_id=genuine.exporter_key_id)
+
+
+def test_the_operators_manifest_passes_against_its_pinned_key():
+    entries = _chain(["a", "b", "c"])
+    manifest = sign_manifest(unsigned_manifest(COMMUNITY, entries, WHEN), signing_key_from_hex(SEED))
+    verify_against_export(manifest, entries, expected_key_id=manifest.exporter_key_id.upper())

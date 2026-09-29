@@ -130,19 +130,28 @@ matches the signed final hash.
 ```
 capsule-emit-buzz-export sign --export entries.jsonl --community-id <uuid> \
     --key-file signing-key.hex --out manifest.json
-capsule-emit-buzz-export verify --manifest manifest.json --export entries.jsonl
+capsule-emit-buzz-export verify --manifest manifest.json --export entries.jsonl \
+    --expect-key <the operator's public key, hex>
 ```
 
-- The input is an export as Buzz's operator export writes it: one JSON entry
+- **The pinned key is the security property.** Anyone can sign a manifest for
+  a rewritten export with a fresh key, and that signature verifies too. What
+  ties an export to the operator is a manifest signed by the operator's key,
+  checked against that key pinned by whoever verifies. `verify` without
+  `--expect-key` reports "signature valid under an UNPINNED key" and exits 3,
+  never 0.
+
+- The input is the export proposed in Buzz #3228 (not merged): one JSON entry
   per line, with `seq`, `hash` and `prev_hash` hex-encoded. It needs no access
   to Buzz's database and changes nothing in Buzz.
-- The manifest is the `buzz_audit_export_manifest` version-1 format, and it is
-  byte-compatible both ways. A manifest signed by the Rust signing path verifies
+- The manifest is the `buzz_audit_export_manifest` version-1 format proposed in
+  Buzz #3228 (not merged), and it is byte-compatible both ways. A manifest signed by the Rust signing path verifies
   here, and this signer reproduces it exactly (`tests/vectors/`).
 - The manifest records the range, the entry count and the final hash only. No
   entry's content, actor or detail is copied into it.
-- The export's links are checked (`prev_hash` and `seq`). Recomputing each
-  entry's hash stays with Buzz's own chain verifier.
+- The export's links are checked (`prev_hash` and `seq`), and its final hash
+  is compared with the signed one. Entry hashes are not recomputed here; that
+  stays with Buzz's chain verifier.
 - The signing key is read from `--key-file` or `BUZZ_AUDIT_SIGNING_KEY` (a
   32-byte seed, hex) and is never printed or written.
 
