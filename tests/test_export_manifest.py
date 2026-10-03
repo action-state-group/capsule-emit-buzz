@@ -215,3 +215,14 @@ def test_a_later_export_that_starts_before_its_from_seq_is_indexed_by_seq():
     rewritten = _chain(["a", "B", "c", "d", "e"])
     with pytest.raises(ExportError, match="does not link"):
         verify_extends(m1, _signed(rewritten[3:]), rewritten, expected_key_id=m1.exporter_key_id)
+
+
+def test_a_later_export_missing_its_from_seq_entry_fails_clearly():
+    """A signed manifest whose from_seq is not in the export (its count agrees
+    with what is there) is refused by name, not with a KeyError."""
+    full = _chain(["a", "b", "c", "d", "e"])
+    m1 = _signed(full[:3])
+    claims_4_to_5 = replace(unsigned_manifest(COMMUNITY, full[4:], WHEN), from_seq=4)
+    m2 = sign_manifest(claims_4_to_5, signing_key_from_hex(SEED))
+    with pytest.raises(ExportError, match="no entry at its from_seq 4"):
+        verify_extends(m1, m2, full[4:], expected_key_id=m1.exporter_key_id)
