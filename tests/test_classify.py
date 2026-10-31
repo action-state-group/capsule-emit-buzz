@@ -3,19 +3,15 @@
 is an effect; agent-job progress is an observation."""
 from __future__ import annotations
 
-import pytest
+from capsule_emit.connector import Classification
 
-pytest.importorskip("capsule_emit.connector", reason="needs capsule-emit>=0.8.4 (ConnectorPort)")
-
-from capsule_emit.connector import Classification  # noqa: E402
-
-from capsule_emit_buzz.adapter import BuzzConnector  # noqa: E402
-from capsule_emit_buzz.event import BUZZ_EFFECT_KINDS, BuzzEvent  # noqa: E402
-from nostr_helpers import signed  # noqa: E402
+from capsule_emit_buzz.event import BUZZ_EFFECT_KINDS, BuzzEvent
+from nostr_helpers import signed
+from stores import connector
 
 
-def _conn() -> BuzzConnector:
-    return BuzzConnector(operator="op", developer="dev/0.0.1", ledger="/tmp/never.jsonl")
+def _conn():
+    return connector()[0]
 
 
 def test_effect_kind_classifies_as_effect():
