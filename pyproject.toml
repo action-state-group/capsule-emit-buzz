@@ -19,7 +19,7 @@ keywords = ["buzz", "nostr", "evidence-record", "capsule", "connector", "adapter
 # predates it), so this pins the merged capsule-emit main revision until the
 # next release.
 dependencies = [
-    "capsule-emit @ git+https://github.com/action-state-group/capsule-emit@e233c51438d8#subdirectory=python",
+    "capsule-emit @ git+https://github.com/action-state-group/capsule-emit@e233c51438d84b9b0e1ed734f5a0554ced0d0ff3#subdirectory=python",
     # BIP-340 Schnorr verification of each Nostr event's signature
     # (libsecp256k1). Pinned; licensed MIT OR Apache-2.0.
     "coincurve==21.0.0",

@@ -1,8 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """BuzzConnector structurally conforms to capsule-emit's ConnectorPort, and
 capture() carries (received), never seals.
-
-Skipped when capsule-emit is not installed.
 """
 from __future__ import annotations
 
@@ -10,15 +8,13 @@ import json
 
 import pytest
 
-pytest.importorskip("capsule_emit.connector", reason="needs capsule-emit>=0.8.4 (ConnectorPort)")
+from capsule_emit.connector import BoundaryClass, ConnectorEvent, ConnectorPort
+from capsule_emit.produce import verify_capsule, verify_envelope
 
-from capsule_emit.connector import BoundaryClass, ConnectorEvent, ConnectorPort  # noqa: E402
-from capsule_emit.produce import verify_capsule, verify_envelope  # noqa: E402
-
-from capsule_emit_buzz.event import BuzzEvent  # noqa: E402
-from capsule_emit_buzz.nip01 import NostrEventError  # noqa: E402
-from nostr_helpers import PUBKEY, edited, signed  # noqa: E402
-from stores import committed, connector  # noqa: E402
+from capsule_emit_buzz.event import BuzzEvent
+from capsule_emit_buzz.nip01 import NostrEventError
+from nostr_helpers import PUBKEY, edited, signed
+from stores import committed, connector
 
 
 def test_isinstance_connector_port():

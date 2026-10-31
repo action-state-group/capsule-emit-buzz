@@ -1,16 +1,14 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Test-wide settings: witnessing is off, so no test sends a checkpoint, and
-any attempt to open a network connection fails the test that made it."""
+"""Test-wide settings: any attempt to open a network connection fails the test
+that made it."""
 from __future__ import annotations
 
-import os
 import socket
 import sys
 from pathlib import Path
 
 import pytest
 
-os.environ["CAPSULE_WITNESS"] = "off"
 sys.path.insert(0, str(Path(__file__).parent))
 
 

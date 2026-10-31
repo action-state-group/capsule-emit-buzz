@@ -2,25 +2,25 @@
 """``BuzzConnector`` — a :class:`capsule_emit.connector.ConnectorPort` over
 Buzz (Nostr) events.
 
-This adapter implements capsule-emit's public ConnectorPort contract, matched
-verbatim from capsule-emit's ``connector.py`` (exported at package top level
-since capsule-emit 0.8.4):
+The connector has the members of capsule-emit's ConnectorPort
+(``capsule_emit.connector``):
 
     boundary_class: str
     def classify(self, event: ConnectorEvent) -> Classification: ...
     def capture(self, event: ConnectorEvent) -> Capsule: ...      # Capsule = EmitResult
 
-Two Buzz-specific decisions the contract leaves to the adapter:
+with one departure: ``capture()`` returns a ``capsule_emit.produce.Result``,
+not the ``EmitResult`` the port declares. The port itself moves out of
+capsule-emit later.
 
-1.  capture() ALWAYS carries via ``capsule_emit.produce.received()``, never
-    ``seal()``.
+Two Buzz-specific decisions:
+
+1.  capture() builds with ``capsule_emit.produce.received()``, never a seal.
     A Buzz event we observed is a FOREIGN, ALREADY-SIGNED artifact: the Nostr
-    author signed it with their own key before this adapter ever saw it. Under
-    surface.py's dispatch rule, foreign already-signed bytes are ``received()``
-    (a carry, brought in as-transmitted under their declared type) — sealing
-    them would falsely assert this adapter's operator authored content someone
-    else signed. So ``BuzzEvent`` always maps to a foreign ConnectorEvent and
-    ``capture()`` always takes the ``received()`` branch. The carried bytes are
+    author signed it with their own key before this adapter ever saw it.
+    Sealing it would falsely assert this adapter's operator authored content
+    someone else signed, so it is carried as received, under its declared
+    type, as transmitted. The carried bytes are
     the event's exact JSON, and ``capture()`` verifies them (NIP-01 id and
     BIP-340 signature) before anything is written.
 
@@ -75,11 +75,11 @@ _BUZZ_FOREIGN_TYPE = "application/buzz-nostr-event"  # provisional
 class BuzzConnector:
     """A ConnectorPort over Buzz (Nostr) events. See module docstring.
 
-    Conforms structurally to :class:`capsule_emit.connector.ConnectorPort`
-    (checked with ``isinstance(BuzzConnector(...), ConnectorPort)`` in the
-    tests) without inheriting from it — the contract is a runtime-checkable
-    Protocol, and conformance is having ``boundary_class`` + ``classify()`` +
-    ``capture()``, exactly as the two in-tree capsule-emit adapters do it.
+    Has the members of :class:`capsule_emit.connector.ConnectorPort`, a
+    runtime-checkable Protocol (``isinstance(BuzzConnector(...),
+    ConnectorPort)`` holds in the tests), without inheriting from it.
+    ``capture()`` returns a ``capsule_emit.produce.Result``, not the
+    ``EmitResult`` the port declares.
     """
 
     #: Declared, not inferred — a passive tap on Buzz's event stream.
@@ -118,12 +118,12 @@ class BuzzConnector:
         return classify_signal_1(event)
 
     def capture(self, event: ConnectorEvent) -> Result:
-        """Carry the foreign, already-signed Buzz event via ``received()``.
+        """Carry the foreign, already-signed Buzz event: build it with
+        ``produce.received()``, never a seal, and write it.
 
-        ``event.foreign`` is always ``True`` for a Buzz event (see module
-        docstring), so this always takes the ``received()`` branch — never
-        ``seal()``. Returns the written record as a ``capsule_emit.produce``
-        ``Result`` (Capsule ID, Capsule bytes, Producer Envelope).
+        A non-foreign event is refused. Returns the written record as a
+        ``capsule_emit.produce.Result`` (Capsule ID, Capsule bytes, Producer
+        Envelope), not the ``EmitResult`` ConnectorPort declares.
         """
         if not event.foreign:
             raise ValueError(

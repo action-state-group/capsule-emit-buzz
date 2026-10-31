@@ -7,13 +7,9 @@ from __future__ import annotations
 import hashlib
 import json
 
-import pytest
-
-pytest.importorskip("capsule_emit.connector", reason="needs capsule-emit>=0.8.4 (ConnectorPort)")
-
-from capsule_emit_buzz import BuzzEvent  # noqa: E402
-from nostr_helpers import signed  # noqa: E402
-from stores import connector  # noqa: E402
+from capsule_emit_buzz import BuzzEvent
+from nostr_helpers import signed
+from stores import connector
 
 TEXT = b"a message whose text must never be stored"
 

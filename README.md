@@ -11,9 +11,10 @@ format and changes nothing in Buzz.
 This repository turns an observed **Buzz** event (a signed Nostr event) into an
 EvidenceRecord subject, keeping the event's transport id distinct from its
 content digest, and derives the host principal from the event's Nostr public
-key. It implements the neutral **`ConnectorPort`** contract published by
-[capsule-emit](https://github.com/action-state-group/capsule-emit) — it consumes
-that substrate, it does not fork or extend it.
+key. It has the members of the neutral **`ConnectorPort`** contract published by
+[capsule-emit](https://github.com/action-state-group/capsule-emit), with one
+departure: `capture()` returns `capsule_emit.produce.Result`, not the `EmitResult`
+the port declares. It consumes that substrate; it does not fork or extend it.
 
 ```
 python -m pytest              # verification, the distinct-id / round-trip tests
@@ -23,17 +24,17 @@ python fixtures/gen_fixtures.py   # regenerate the two-language parity fixtures
 
 ## What it is
 
-- A `ConnectorPort` implementation, `BuzzConnector`:
+- `BuzzConnector`, with `ConnectorPort`'s members:
   - `classify(event) -> observation | effect` — a **moderation decision** and a
     **release going live** are *effects*; **agent-job progress** is an
     *observation*. The decision runs through capsule-emit's own
     `classify_signal_1`, so Signal-1 semantics are identical to every other
     adapter.
-  - `capture(event) -> received()` — a Buzz event we observed is a **foreign,
-    already-signed artifact** (the Nostr author signed it before we saw it), so
-    it is `received()` (a carry), **never `seal()`**. Sealing would falsely
-    claim this operator authored content someone else signed. Before anything
-    is logged, the event's exact JSON is verified as a signed NIP-01 event:
+  - `capture(event) -> produce.Result` — a Buzz event we observed is a
+    **foreign, already-signed artifact** (the Nostr author signed it before we
+    saw it), so it is built with `produce.received()` (a carry), **never a
+    seal**. Sealing would falsely claim this operator authored content someone
+    else signed. Before anything is written, the event's exact JSON is verified as a signed NIP-01 event:
     its `id` must be the hash of its serialization, and its BIP-340 signature
     must verify under its `pubkey` (coincurve, over libsecp256k1). An
     unsigned or altered event raises `NostrEventError` (a reason code, never
@@ -44,6 +45,9 @@ python fixtures/gen_fixtures.py   # regenerate the two-language parity fixtures
     `identity` (a `capsule_emit.produce.SigningIdentity`), puts it into
     `artifacts` (a `capsule_emit.artifact` store), then appends its Capsule ID
     to `log` (a `cll.log` entry log). The append is the commit.
+  - capturing the same event twice gives two records with the same
+    `action_id` and different Capsule IDs; deduplicating by `action_id` is the
+    caller's.
   - declared **boundary class `listener`** — a passive tap on Buzz's event
     stream, not a gateway, decorator, or engine.
 - The **host principal** is derived from the event's Nostr pubkey via the
@@ -60,11 +64,11 @@ python fixtures/gen_fixtures.py   # regenerate the two-language parity fixtures
 ## How it consumes capsule-emit's `ConnectorPort`
 
 `ConnectorPort` is a runtime-checkable `typing.Protocol` in
-`capsule_emit.connector`. `BuzzConnector` conforms by *having* the members —
-`boundary_class`, `classify()`, `capture()` — exactly as the two in-tree
-capsule-emit adapters (`MCPCapsuleEmitter`, `LangChainCapsuleListener`) do,
-without inheriting from a base class. `capture()` builds through
-capsule-emit's `produce.received()`, the carry of foreign bytes. This
+`capsule_emit.connector`. `BuzzConnector` has its members (`boundary_class`,
+`classify()`, `capture()`) without inheriting from a base class. Its
+`capture()` builds with capsule-emit's `produce.received()`, never a seal, and
+returns `capsule_emit.produce.Result` rather than the `EmitResult` the port
+declares. This
 repository adds **no** capsule-emit primitive of its own; it maps Buzz events
 onto the neutral one.
 
