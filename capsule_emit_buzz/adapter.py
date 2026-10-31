@@ -12,7 +12,8 @@ since capsule-emit 0.8.4):
 
 Two Buzz-specific decisions the contract leaves to the adapter:
 
-1.  capture() ALWAYS carries via ``received()``, never ``seal()``.
+1.  capture() ALWAYS carries via ``capsule_emit.produce.received()``, never
+    ``seal()``.
     A Buzz event we observed is a FOREIGN, ALREADY-SIGNED artifact: the Nostr
     author signed it with their own key before this adapter ever saw it. Under
     surface.py's dispatch rule, foreign already-signed bytes are ``received()``
@@ -21,7 +22,13 @@ Two Buzz-specific decisions the contract leaves to the adapter:
     else signed. So ``BuzzEvent`` always maps to a foreign ConnectorEvent and
     ``capture()`` always takes the ``received()`` branch. The carried bytes are
     the event's exact JSON, and ``capture()`` verifies them (NIP-01 id and
-    BIP-340 signature) before anything is logged.
+    BIP-340 signature) before anything is written.
+
+    The record is built and signed in memory with the ``SigningIdentity`` the
+    caller gives the connector, then written in two steps: ``put`` into the
+    caller's artifact store (``capsule_emit.artifact``), then ``append`` of its
+    Capsule ID to the caller's CLL entry log (``cll.log``), which is the commit.
+    Checkpointing and witnessing that log are the caller's.
 
 2.  classify() maps the Buzz event kind, not raw HTTP/MCP signals.
     A moderation DECISION and a RELEASE going live are effects (a write crossed
@@ -38,15 +45,20 @@ It sees every event the stream carries; it declares no Signal-2 knowledge.
 """
 from __future__ import annotations
 
+import json
+from datetime import datetime, timezone
+
 from capsule_emit.connector import (
     BoundaryClass,
-    Capsule,
     Classification,
     ConnectorEvent,
     ConnectorPort,
     classify_signal_1,
 )
-from capsule_emit.surface import received
+from capsule_emit.artifact import Record
+from capsule_emit.artifact import Store as ArtifactStore
+from capsule_emit.produce import ActionType, Extension, Input, Result, SigningIdentity, received, sign
+from cll.log import AppendInput, EntryStore
 
 from .event import BuzzEvent, host_principal_ref
 from .record import EvidenceRecordSubject, record_subject
@@ -78,19 +90,19 @@ class BuzzConnector:
         *,
         operator: str,
         developer: str,
-        ledger: str = "ledger.jsonl",
-        witness: bool | None = None,
+        identity: SigningIdentity,
+        artifacts: ArtifactStore,
+        log: EntryStore,
     ) -> None:
-        """``witness`` follows capsule-emit when left ``None``: witnessing is
-        on (unless ``CAPSULE_WITNESS=off``), and what leaves the process is a
-        signed checkpoint of this log (its size, a root hash and a time),
-        never a record's content, once 100 records have accumulated or 900
-        seconds have passed. ``witness=False`` turns it off for this
-        connector."""
+        """``identity`` signs each record's Producer Envelope; ``artifacts``
+        holds the record and its envelope; ``log`` commits its Capsule ID.
+        The caller owns all three (opening, trusting the identity's public
+        key in the artifact store, checkpointing and closing)."""
         self._operator = operator
         self._developer = developer
-        self._ledger = ledger
-        self._witness = witness
+        self._identity = identity
+        self._artifacts = artifacts
+        self._log = log
 
     # -- ConnectorPort ------------------------------------------------------
 
@@ -105,12 +117,13 @@ class BuzzConnector:
         """
         return classify_signal_1(event)
 
-    def capture(self, event: ConnectorEvent) -> Capsule:
+    def capture(self, event: ConnectorEvent) -> Result:
         """Carry the foreign, already-signed Buzz event via ``received()``.
 
         ``event.foreign`` is always ``True`` for a Buzz event (see module
         docstring), so this always takes the ``received()`` branch — never
-        ``seal()``. Returns the already-logged capsule (``EmitResult``).
+        ``seal()``. Returns the written record as a ``capsule_emit.produce``
+        ``Result`` (Capsule ID, Capsule bytes, Producer Envelope).
         """
         if not event.foreign:
             raise ValueError(
@@ -120,25 +133,29 @@ class BuzzConnector:
         raw = event.foreign_bytes
         # The carried bytes must be a signed Nostr event that verifies, however
         # the ConnectorEvent was built: NostrEventError otherwise, and nothing
-        # is logged.
+        # is written.
         buzz = BuzzEvent(raw.encode("utf-8") if isinstance(raw, str) else bytes(raw))
-        return received(
+        # The record names the event it carries: its Nostr id, its author's
+        # key, and the digest of the full signed event.
+        link = {"event_id": buzz.event_id, "pubkey": buzz.pubkey, "semantic_digest": buzz.semantic_digest()}
+        built = received(
+            Input(
+                action_id=f"buzz.event/{buzz.event_id}",
+                action_type=ActionType.FYI,
+                operator=self._operator,
+                developer=self._developer,
+                # When this connector received the event, not the author's
+                # created_at (which the carried bytes already hold).
+                timestamp=datetime.now(timezone.utc),
+                extensions=(Extension(name="buzz_event", value=json.dumps(link, separators=(",", ":"))),),
+            ),
             buzz.event_bytes,
-            type=event.foreign_type,
-            operator=self._operator,
-            developer=self._developer,
-            ledger=self._ledger,
-            witness=self._witness,
-            # The record names the event it carries: its Nostr id, its
-            # author's key, and the digest of the full signed event.
-            extra_compute={
-                "buzz_event": {
-                    "event_id": buzz.event_id,
-                    "pubkey": buzz.pubkey,
-                    "semantic_digest": buzz.semantic_digest(),
-                }
-            },
+            event.foreign_type,
         )
+        envelope = sign(built, self._identity)
+        self._artifacts.put(Record(capsule_id=built.capsule_id, capsule=built.json, producer_envelope=envelope))
+        self._log.append(AppendInput(value=bytes.fromhex(built.capsule_id), appended_at=datetime.now(timezone.utc)))
+        return Result(capsule_id=built.capsule_id, payload=built.json, envelope=envelope)
 
     # -- Buzz-side convenience ---------------------------------------------
 

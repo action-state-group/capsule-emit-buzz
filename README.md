@@ -37,7 +37,13 @@ python fixtures/gen_fixtures.py   # regenerate the two-language parity fixtures
     its `id` must be the hash of its serialization, and its BIP-340 signature
     must verify under its `pubkey` (coincurve, over libsecp256k1). An
     unsigned or altered event raises `NostrEventError` (a reason code, never
-    the content) and nothing is logged.
+    the content) and nothing is written.
+  - writes to stores the caller provides: `BuzzConnector(operator=...,
+    developer=..., identity=..., artifacts=..., log=...)` builds the record
+    with `capsule_emit.produce.received()`, signs its Producer Envelope with
+    `identity` (a `capsule_emit.produce.SigningIdentity`), puts it into
+    `artifacts` (a `capsule_emit.artifact` store), then appends its Capsule ID
+    to `log` (a `cll.log` entry log). The append is the commit.
   - declared **boundary class `listener`** — a passive tap on Buzz's event
     stream, not a gateway, decorator, or engine.
 - The **host principal** is derived from the event's Nostr pubkey via the
@@ -57,8 +63,8 @@ python fixtures/gen_fixtures.py   # regenerate the two-language parity fixtures
 `capsule_emit.connector`. `BuzzConnector` conforms by *having* the members —
 `boundary_class`, `classify()`, `capture()` — exactly as the two in-tree
 capsule-emit adapters (`MCPCapsuleEmitter`, `LangChainCapsuleListener`) do,
-without inheriting from a base class. `capture()` dispatches through
-capsule-emit's `received()` under surface.py's foreign-bytes rule. This
+without inheriting from a base class. `capture()` builds through
+capsule-emit's `produce.received()`, the carry of foreign bytes. This
 repository adds **no** capsule-emit primitive of its own; it maps Buzz events
 onto the neutral one.
 
@@ -69,7 +75,7 @@ serialization, which its author signed. `semantic_digest` is the **SHA-256 of
 the full signed event exactly as received**, and the carried artifact is those
 same bytes. They are **two separate fields and are never conflated**. Each
 record also names its event: `{event_id, pubkey, semantic_digest}` under
-`buzz_event` in the record body.
+a top-level `buzz_event` member of the record.
 
 The digest is bound to one event. Two events with the same text have different
 ids and different digests; the same event received twice has the same digest.
@@ -110,12 +116,8 @@ event itself.
 
 ## Witnessing
 
-`BuzzConnector(..., witness=None)` follows capsule-emit's default: witnessing
-is on, pointed at the public witness. What leaves the process is a signed
-checkpoint of this connector's log (its size, a root hash and a time), never a
-record's content. It goes once 100 records have accumulated or 900 seconds have
-passed. Turn it off with `witness=False`, or `CAPSULE_WITNESS=off` in the
-environment.
+`BuzzConnector` does not witness. It appends to the log the caller provides;
+checkpointing and witnessing that log are the caller's.
 
 ## Signed audit-export manifest (a sidecar for a proposed export)
 

@@ -13,12 +13,13 @@ license = { text = "Apache-2.0" }
 authors = [{ name = "Action State Group" }]
 keywords = ["buzz", "nostr", "evidence-record", "capsule", "connector", "adapter"]
 
-# The one runtime dependency: capsule-emit, whose public ConnectorPort this
-# adapter implements. ConnectorPort landed and was exported at package top
-# level in capsule-emit 0.8.4 (release 7ad8104, "export ConnectorPort at
-# package top level, cut the release adapters pin") — pin that floor.
+# capsule-emit: its public ConnectorPort, which this adapter implements, plus
+# capsule_emit.produce (builds and signs the record) and capsule_emit.artifact
+# (the record store type). produce is not in a release yet (PyPI 0.13.0
+# predates it), so this pins the merged capsule-emit main revision until the
+# next release.
 dependencies = [
-    "capsule-emit>=0.8.4",
+    "capsule-emit @ git+https://github.com/action-state-group/capsule-emit@e233c51438d8#subdirectory=python",
     # BIP-340 Schnorr verification of each Nostr event's signature
     # (libsecp256k1). Pinned; licensed MIT OR Apache-2.0.
     "coincurve==21.0.0",
@@ -26,9 +27,10 @@ dependencies = [
     # licensed Apache-2.0 OR BSD-3-Clause.
     "cryptography==50.0.1",
     # The MMR, checkpoints, inclusion and consistency proofs for the
-    # manifest log (manifest_log.py). Also a dependency of capsule-emit;
-    # named here because it is imported directly. Apache-2.0.
-    "checkpointed-local-log>=0.4.0",
+    # manifest log (manifest_log.py), and cll.log, the entry log the
+    # connector appends to (0.6). Also a dependency of capsule-emit; named
+    # here because it is imported directly. Apache-2.0.
+    "checkpointed-local-log>=0.6.0",
 ]
 
 [project.scripts]
