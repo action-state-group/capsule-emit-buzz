@@ -34,11 +34,12 @@ python fixtures/gen_fixtures.py   # regenerate the two-language parity fixtures
     **foreign, already-signed artifact** (the Nostr author signed it before we
     saw it), so it is built with `produce.received()` (a carry), **never a
     seal**. Sealing would falsely claim this operator authored content someone
-    else signed. Before anything is written, the event's exact JSON is verified as a signed NIP-01 event:
-    its `id` must be the hash of its serialization, and its BIP-340 signature
-    must verify under its `pubkey` (coincurve, over libsecp256k1). An
-    unsigned or altered event raises `NostrEventError` (a reason code, never
-    the content) and nothing is written.
+    else signed. Before anything is written, the event's exact JSON is
+    verified as a signed NIP-01 event: its `id` must be the hash of its
+    serialization, and its BIP-340 signature must verify under its `pubkey`
+    (coincurve, over libsecp256k1). An unsigned or altered event raises
+    `NostrEventError` (a reason code, never the content) and nothing is
+    written.
   - writes to stores the caller provides: `BuzzConnector(operator=...,
     developer=..., identity=..., artifacts=..., log=...)` builds the record
     with `capsule_emit.produce.received()`, signs its Producer Envelope with
